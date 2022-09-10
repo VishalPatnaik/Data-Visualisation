@@ -1,0 +1,391 @@
+---
+title: "Data Visualisation - 3"
+author: "Vishal Patnaik Damodarapatruni - s3811521"
+date: "11/05/2021"
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    runtime: shiny
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(readxl)
+library(tidyverse)
+library(plotly)
+library(magrittr)
+library(dplyr)
+library(readr)
+library(knitr)
+library(car)
+library(mapview)
+library(rnaturalearth)
+library(rnaturalearthhires)
+
+# if using rnaturalearthhires install it through below link.
+# devtools::install_github('ropensci/rnaturalearthhires') 
+
+library(sp)
+library(leaflet)
+library(htmlwidgets)
+library(htmltools)
+```
+
+
+```{r data, include=FALSE}
+hos_data <- read_csv("ALOS.csv")
+```
+
+
+```{r stucture, include=FALSE}
+# Checking data and data types.
+
+str(hos_data)
+```
+
+```{r filtering, include=FALSE}
+# Data type conversion and Pre - Processing.
+
+hos <- hos_data %>% filter(`Peer group` == "Large regional hospitals" | `Peer group` == "Medium regional hospitals" | `Peer group` == "Large metropolitan hospitals" | `Peer group` == "Medium metropolitan hospitals") 
+hos <- hos[, -c(8, 10)]
+hos
+```
+
+
+```{r type, include=FALSE}
+# Checking Null values for all columns.
+
+hos$`Number of patients` <- as.numeric((gsub(",", "", hos$`Number of patients`)))
+hos$`Percentage of patients seen on time` <- as.numeric((gsub("%", "", hos$`Percentage of patients seen on time`)))
+str(hos)
+```
+
+
+```{r nu0, include=FALSE}
+colSums(is.na(hos))
+```
+
+
+```{r hos, include=FALSE}
+# Interpreting Null values.
+print("Before")
+print(sum(is.na(hos$`Number of patients`)))
+c <- unique(hos$`Peer group`)
+hos %<>% mutate(`Number of patients` = ifelse(is.na(`Number of patients`), mean(hos$`Number of patients`, na.rm = TRUE), `Number of patients`))
+print("After")
+sum(is.na(hos$`Number of patients`))
+```
+
+```{r, include=FALSE}
+hos
+```
+
+Australia {data-icon="fa-globe-asia"}
+======================================
+Row {data-width=150}
+--------------------------------------
+
+### Total large hospitals in metropolitan
+```{r}
+Metropolitan_L = hos %>% filter(`Peer group` == "Large metropolitan hospitals") 
+v2 = Metropolitan_L %>% nrow()
+valueBox(value = v2, icon = "fa-hospital-alt", caption = "Large hospitals in Metropolitan areas", color = "Blue")
+```
+
+### Total medium hospitals in metropolitan
+```{r}
+Metropolitan_M = hos %>% filter(`Peer group` == "Medium metropolitan hospitals") 
+v3 = Metropolitan_M %>% nrow()
+valueBox(value = v3, icon = "fa-hospital", caption = "Medium hospitals in Metropolitan areas", color = "Blue")
+```
+
+### Total large hospitals in regional
+```{r}
+Regional_L = hos %>% filter(`Peer group` == "Large regional hospitals") 
+v = Regional_L %>% nrow()
+valueBox(value = v, icon = "fa-hospital-alt", caption = "Large hospitals in Regional areas", color = "Red")
+```
+
+### Total medium hospitals in regional
+```{r}
+Regional_M = hos %>% filter(`Peer group` == "Medium regional hospitals") 
+v1 = Regional_M %>% nrow()
+valueBox(value = v1, icon = "fa-hospital", caption = "Medium hospitals in Regional areas", color = "Red")
+```
+
+Row {data-height=98%}
+----------------------------------
+
+### <b>Total number of patients admitted in australian hospitals over the past decade (2011 - 2020). <i class="fa fa-line-chart" aria-hidden="true"></i></b>
+```{r}
+h1 = hos %>% group_by(`Time period`, `Peer group`) %>% 
+  summarise(count = round(sum(`Number of patients`, na.rm = TRUE)))
+p1 = plot_ly(data = h1,
+        x = h1$`Time period`,
+        y = h1$count) %>% 
+  add_lines(linetype = h1$`Peer group`,
+            data = h1$count,
+            hoverinfo = "text",
+            text = paste(h1$`Peer group`, ":", h1$count)) %>% 
+  layout(yaxis = list(zeroline = FALSE, title = "<b>Average number of admissions</b>"),
+         xaxis = list(zeroline = FALSE, title = "<b>Time Period</b>"),
+         legend = list(title = list(text = "<b>Severity</b>")),
+         hovermode = "x unified"
+         )
+
+p1
+```
+
+
+### <b>Hospital admissions in each Australian state over the time period 2019 to 2020. <i class="fas fa-globe-asia" aria-hidden="true"></i></b>
+
+```{r, include=FALSE}
+#devtools::install_github('ropensci/rnaturalearthhires') 
+
+aussie_states <- rnaturalearth::ne_states(country = 'australia')
+
+aussie_states$State <- aussie_states$name
+
+
+hos3 <- hos[c(3, 5, 7)]
+
+hos3 <- hos3 %>% 
+  filter(`Time period` == "2019–20") 
+
+hos3 <- hos3[-2]
+
+hos3 <- hos3 %>%
+  group_by(State)%>% 
+  summarise(ANP = round(sum(`Number of patients`)/1000, 2))
+
+hos3$State[hos3$State == "WA"] <- "Western Australia"
+hos3$State[hos3$State == "NT"] <- "Northern Territory"
+hos3$State[hos3$State == "SA"] <- "South Australia"
+hos3$State[hos3$State == "Qld"] <- "Queensland"
+hos3$State[hos3$State == "Vic"] <- "Victoria"
+hos3$State[hos3$State == "NSW"] <- "New South Wales"
+hos3$State[hos3$State == "Tas"] <- "Tasmania"
+hos3$State[hos3$State == "ACT"] <- "Australian Capital Territory"
+
+state_merge <- merge(aussie_states, hos3, 
+                          by="State", all.x=TRUE)
+
+```
+
+
+```{r, include=FALSE}
+v_labs <- sprintf("<strong>%s</strong><br/>%gK admissions (2019 - 2020).",
+                  state_merge$State, state_merge$ANP) %>% 
+  lapply(htmltools::HTML)
+
+title <- tags$div(HTML('<h3>Hospital admissions in the time period 2019 to 2020.</h3>'))
+
+p2 <- leaflet(state_merge) %>% 
+  setView(lng = 138, lat = -25, zoom = 4)
+
+b <- quantile(hos3$ANP, probs = seq(0, 1, .2), names = FALSE, na.rm = TRUE)
+
+CB <- colorBin("YlOrRd", domain = hos3$ANP, bins = b)
+
+CB1 <- colorBin("YlOrRd", domain = hos3$ANP, bins = 4, pretty = FALSE)
+```
+
+
+```{r}
+p2 %>% addPolygons(fillColor = ~CB1(ANP), weight = 2, opacity = 1, 
+                   color = "white", dashArray = "3", fillOpacity = 0.7,
+                   highlight = highlightOptions(weight = 5, color = "#666", dashArray = "",
+                                                fillOpacity = 0.7, bringToFront = TRUE),
+  
+  label = v_labs,
+  labelOptions = labelOptions(style = list("font-weight" = "normal", padding = "3px 8px"),
+                              textsize = "13px", direction = "auto")) %>%
+  
+  
+  addLegend(pal = CB1, values = ~ANP, opacity = 0.7, title = "Admissions (in thousands).",
+            position = "bottomright") %>%
+  
+  
+  addControl(title, position = "topright")
+```
+
+
+
+Metropolitan {data-icon="fa-subway"}
+====================================
+
+Row
+-----
+
+### Large hospitals
+```{r}
+patient_byperiod = hos %>% 
+  filter(`Peer group` == "Large metropolitan hospitals") %>% 
+  group_by(`Time period`)
+avg = paste0(round(mean(patient_byperiod$`Percentage of patients seen on time`, na.rm = TRUE), 2), "%")
+  
+valueBox(avg, icon = "fa-user-md", caption = "Patients seen on time in Large hospitals", color = "Blue")
+```
+
+### Medium hospitals
+```{r}
+patient_byperiod = hos %>% 
+  filter(`Peer group` == "Medium metropolitan hospitals") %>% 
+  group_by(`Time period`)
+avg = paste0(round(mean(patient_byperiod$`Percentage of patients seen on time`, na.rm = TRUE), 2), "%")
+  
+valueBox(avg, icon = "fa-user-md", caption = "Patients seen on time in Medium hospitals", color = "Blue")
+```
+
+Row
+----------
+
+### <b>Average number of admissions into metropolitan hospitals in each State. <i class="fa fa-bar-chart-o" aria-hidden="true"></i></b>
+
+```{r}
+hos1 = hos[c(3:5, 7)]
+h1 = hos1 %>% 
+  filter(`Peer group` == "Large metropolitan hospitals" | `Peer group` == "Medium metropolitan hospitals") %>% 
+  group_by(`Time period`, State) %>% 
+  summarise(ANP = round(mean(`Number of patients`), 2))
+
+hos_v <- table(h1$`Time period`,
+                 h1$State,
+                 dnn = c("Time Period", "State")) %>% 
+  data.frame()
+
+p3 <- plot_ly(data = hos_v, x = ~h1$`Time period`, y = ~h1$ANP, type = "bar", 
+              color = ~h1$State, colors = c("#67a9cf","#ef8a62")) %>% 
+  layout(yaxis = list(zeroline = FALSE, title = "<b>Average number of admissions</b>"),
+         xaxis = list(zeroline = FALSE, title = "<b>Time Period</b>"),
+         legend = list(title = list(text = "<b>State</b>")),
+         hovermode = "x unified"
+         )
+
+p3
+```
+
+
+### <b>Average number of admissions into metropolitan hospitals based on Severity of the patient. <i class="fa fa-bar-chart" aria-hidden="true"></i></b>
+```{r}
+hos2 = hos[c(4:7)]
+h2 = hos2 %>% 
+  filter(`Peer group` == "Large metropolitan hospitals" | `Peer group` == "Medium metropolitan hospitals") %>% 
+  group_by(`Time period`, `Patient cohort`)%>% 
+  summarise(ANP = round(mean(`Number of patients`), 2))
+
+hos_v <- table(h2$`Time period`,
+                 h2$`Patient cohort`,
+                 dnn = c("Time Period", "Patient cohort")) %>% 
+  data.frame()
+
+p4 <- plot_ly(data = hos_v, x = ~h2$`Time period`, y = ~h2$ANP, type = "bar", 
+              color = ~h2$`Patient cohort`, colors = c("#67a9cf","#ef8a62")) %>% 
+  
+  layout(yaxis = list(zeroline = FALSE, title = "<b>Average number of admissions</b>"),
+         xaxis = list(zeroline = FALSE, title = "<b>Time Period</b>"),
+         legend = list(title = list(text = "<b>Severity</b>")),
+         hovermode = "x unified"
+         )
+
+p4
+```
+
+
+
+Regional {data-icon="fa-train"}
+===============================
+
+Row
+--------------------
+  
+
+### <b>Large hospitals</b>
+```{r}
+patient_byperiod = hos %>% 
+  filter(`Peer group` == "Large regional hospitals") %>% 
+  group_by(`Time period`)
+avg = paste0(round(mean(patient_byperiod$`Percentage of patients seen on time`, na.rm = TRUE), 2), "%")
+  
+valueBox(avg, icon = "fa-user-md", caption = "Patients seen on time in Large hospitals", color = "Blue")
+```
+
+### <b>Medium hospitals</b>
+```{r}
+patient_byperiod = hos %>% 
+  filter(`Peer group` == "Medium regional hospitals") %>% 
+  group_by(`Time period`)
+avg = paste0(round(mean(patient_byperiod$`Percentage of patients seen on time`, na.rm = TRUE), 2), "%")
+  
+valueBox(avg, icon = "fa-user-md", caption = "Patients seen on time in Medium hospitals", color = "Blue")
+```
+
+Row{data-height=90%}
+----------
+
+### <b>Average number of admissions into regional hospitals in each State. <i class="fa fa-bar-chart" aria-hidden="true"></i></b>
+```{r}
+h3 = hos1 %>% 
+  filter(`Peer group` == "Large regional hospitals" | `Peer group` == "Medium regional hospitals") %>% 
+  group_by(`Time period`, State)%>% 
+  summarise(ANP = round(mean(`Number of patients`), 2))
+
+hos_v <- table(h3$`Time period`,
+                 h3$State,
+                 dnn = c("Time Period", "State")) %>% 
+  data.frame()
+
+p5 <- plot_ly(data = hos_v, x = ~h3$`Time period`, y = ~h3$ANP, type = "bar", 
+              color = ~h3$State, colors = c("#67a9cf","#ef8a62")) %>% 
+  
+  layout(yaxis = list(zeroline = FALSE, title = "<b>Average number of admissions</b>"),
+         xaxis = list(zeroline = FALSE, title = "<b>Time Period</b>"),
+         legend = list(title = list(text = "<b>State</b>")),
+         hovermode = "x unified"
+         )
+
+p5
+```
+
+
+### <b>Average number of admissions into regional hospitals based on Severity of the patient. <i class="fa fa-bar-chart" aria-hidden="true"></i></b>
+```{r}
+h4 = hos2 %>% 
+  filter(`Peer group` == "Large regional hospitals" | `Peer group` == "Medium regional hospitals") %>% 
+  group_by(`Time period`, `Patient cohort`) %>% 
+  summarise(ANP = round(mean(`Number of patients`), 2))
+
+
+hos_v <- table(h4$`Time period`,
+                 h4$`Patient cohort`,
+                 dnn = c("Time Period", "Patient cohort")) %>% 
+  data.frame()
+
+p6 <- plot_ly(data = hos_v, x = ~h4$`Time period`, y = ~h4$ANP, type = "bar", 
+              color = ~h4$`Patient cohort`, colors = c("#67a9cf","#ef8a62")) %>% 
+  
+  layout(yaxis = list(zeroline = FALSE, title = "<b>Average number of admissions</b>"),
+         xaxis = list(zeroline = FALSE, title = "<b>Time Period</b>"),
+         legend = list(title = list(text = "<b>Severity</b>")),
+         hovermode = "x unified"
+         )
+
+p6
+```
+
+
+Row{data-height=10%}
+----------------------------------
+### <b>Data Reference</b>
+
+<b>Data - Data downloads - Australian Institute of Health and Welfare. (2021). Retrieved 9 June 2021, from https://www.aihw.gov.au/reports-data/myhospitals/content/data-downloads</b>
+
+<b>Code - Some code from lectures.</b>
+
+### <b>Australia map References</b>
+
+<b>Spacial data - (2021). Generate an Australian state/territory choropleth in R?. Retrieved 9 June 2021, from https://stackoverflow.com/questions/61228231/generate-an-australian-state-territory-choropleth-in-r</b>
+
+<b>Code - Chapter 7 - Spacial data.</b>
+
